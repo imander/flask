@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 from functools import wraps
 import hashlib
 import json
@@ -21,6 +20,7 @@ from flask_sqlalchemy import SQLAlchemy
 import requests
 import yaml
 
+
 app = Flask(__name__)
 CORS(app)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///db.sqlite"
@@ -40,7 +40,7 @@ class User(db.Model):
     name = db.Column(db.String(1000))
 
     def check_pw(self, password):
-        return self.password == hash_password(password)
+        return self.password == password
 
 
 class Note(db.Model):
@@ -51,7 +51,11 @@ class Note(db.Model):
 
 
 def template(file):
-    return render_template(file, authenticated=session.get("authenticated", False))
+    return render_template(
+        file,
+        authenticated=session.get("authenticated", False),
+        admin=session.get("admin", False),
+    )
 
 
 def restricted(admin=False):
@@ -72,7 +76,7 @@ def restricted(admin=False):
 
 
 def hash_password(password):
-    return hashlib.sha1(b"{password}").hexdigest()
+    return hashlib.sha256(b"{password}").hexdigest()
 
 
 @app.route("/")
@@ -95,7 +99,7 @@ def login_post():
 
     if not user or not user.check_pw(password):
         flash("Please check your login details and try again.")
-        return redirect(url_for("auth.login"))
+        return redirect(url_for("login"))
 
     session["authenticated"] = True
     if user.admin == 1:
@@ -105,7 +109,7 @@ def login_post():
     redir = session.get("redirect")
     if redir is not None:
         return redirect(redir)
-    return redirect(url_for("index"))
+    return redirect(url_for("profile"))
 
 
 @app.route("/logout")
@@ -127,7 +131,6 @@ def signup_post():
     if user:
         flash("Email already registered")
         return redirect(url_for("signup"))
-    args["password"] = hash_password(args.get("password"))
 
     new_user = User(**args)
 
@@ -137,15 +140,72 @@ def signup_post():
     return redirect(url_for("login"))
 
 
+@app.route("/profile")
+@restricted()
+def profile():
+    return render_template("profile.html", name=session.get("user").name)
+
+
 @app.route("/users", methods=["GET"])
 @restricted(admin=True)
 def users():
     users = User.query.all()
-    out = ""
 
+    table = """
+<style>
+table {
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+  width: 70%;
+}
+
+td, th {
+  text-align: left;
+  padding: 8px;
+}
+
+tr:nth-child(even) {
+}
+</style>
+<table>
+<tr><th>Name</th><th>Email</th><th>Is Admin</th></tr>
+"""
     for user in users:
-        out += f"- {user.name}"
-    return out
+        table += (
+            f"<tr><th>{user.name}</th><th>{user.email}</th><th>{user.admin}</th></tr>\n"
+        )
+    table += "</table>"
+    return table
+
+
+@app.route("/add-user", methods=["GET"])
+@restricted(admin=True)
+def add_user():
+    return template("add_user.html")
+
+
+@app.route("/users", methods=["POST"])
+@restricted()
+def update_users():
+    user_email = request.form.get("email")
+    user_name = request.form.get("name")
+    user_password = request.form.get("password")
+    user_admin = int(request.form.get("admin"))
+
+    user = User.query.filter_by(email=user_email).first()
+
+    if user:
+        user.name = user_name
+        user.password = user_password
+        user.admin = int(user_admin)
+    else:
+        new_user = User(
+            email=user_email, name=user_name, password=user_password, admin=user_admin
+        )
+        db.session.add(new_user)
+
+    db.session.commit()
+    return redirect(url_for("users"))
 
 
 @app.route("/ip")
@@ -192,6 +252,8 @@ def proxy():
     url = request.args.get("url")
     if url is None:
         return "URL not provided", 400
+    if "169.254.169.254" in url:
+        return "Invalid URL", 400
     return requests.get(url).text
 
 

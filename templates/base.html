@@ -22,8 +22,16 @@
                   Home
                 </a>
                 {% if authenticated %}
-                  <a href="{{ url_for('index') }}" class="navbar-item">
+                  <a href="{{ url_for('profile') }}" class="navbar-item">
                     Profile
+                  </a>
+                {% endif %}
+                {% if admin %}
+                  <a href="{{ url_for('users') }}" class="navbar-item">
+                    Users
+                  </a>
+                  <a href="{{ url_for('add_user') }}" class="navbar-item">
+                    Add User
                   </a>
                 {% endif %}
                 {% if not authenticated %}
